@@ -1,0 +1,9 @@
+Changes
+examples/fit_linear.pl
+lib/Physics/Ellipsometry/VASE.pm
+Makefile.PL
+MANIFEST
+README.md
+t/01-basic.t
+t/02-fit.t
+t/data/sample.dat
