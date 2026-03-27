@@ -1,0 +1,16 @@
+# Aider chat history
+.aider.*
+
+# Perl artifacts
+*.o
+*.so
+*.blib
+blib/
+pm_to_blib
+MYMETA.*
+Makefile
+Makefile.old
+
+# OS files
+.DS_Store
+Thumbs.db
