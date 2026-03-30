@@ -86,6 +86,83 @@ sub fit {
     return $finalp;
 }
 
+# Plot raw data with model fit overlay
+sub plot {
+    my ($self, $fit_params, %opts) = @_;
+    require PDL::Graphics::Gnuplot;
+
+    my $data  = $self->{data};
+    my $model = $self->{model};
+
+    my $wavelength = $data->((0),:)->flat;
+    my $psi_data   = $data->((2),:)->flat;
+    my $delta_data = $data->((3),:)->flat;
+
+    # Evaluate model at fitted parameters
+    my $x_data  = $data->(0:1,:)->xchg(0,1);
+    my $y_model = &$model($fit_params, $x_data);
+    my $npts    = $wavelength->nelem;
+    my $psi_fit   = $y_model->slice("0:" . ($npts - 1));
+    my $delta_fit = $y_model->slice("$npts:" . (2 * $npts - 1));
+
+    my $output = $opts{output};
+    my $title  = $opts{title} // 'VASE Fit Results';
+
+    # Select terminal and construct gpwin
+    my $gp;
+    if ($output) {
+        my ($term, @topts);
+        if    ($output =~ /\.png$/i) { $term = "pngcairo"; @topts = (size => [900,700,"px"]) }
+        elsif ($output =~ /\.pdf$/i) { $term = "pdfcairo"; @topts = (size => [7,5.5,"in"]) }
+        elsif ($output =~ /\.svg$/i) { $term = "svg";      @topts = (size => [900,700,"px"]) }
+        elsif ($output =~ /\.eps$/i) { $term = "epscairo" }
+        else                         { $term = "pngcairo"; @topts = (size => [900,700,"px"]) }
+        $gp = PDL::Graphics::Gnuplot::gpwin($term, output => $output, enhanced => 1, @topts);
+    } else {
+        $gp = PDL::Graphics::Gnuplot::gpwin(enhanced => 1);
+    }
+
+    # Multiplot: Psi on top, Delta on bottom (rows, cols)
+    $gp->multiplot(layout => [1, 2], title => $title);
+
+    # --- Psi panel ---
+    $gp->plot(
+        { title  => '{/Symbol Y} (Psi)',
+          xlabel => '',
+          ylabel => '{/Symbol Y} (deg)',
+          key    => 'top right box' },
+        with => 'points', legend => 'Data',
+            pt => 7, ps => 1.2, lc => 'rgb "#0072B2"',
+            $wavelength, $psi_data,
+        with => 'lines', legend => 'Fit',
+            lw => 2, dt => 1, lc => 'rgb "#D55E00"',
+            $wavelength, $psi_fit,
+    );
+
+    # --- Delta panel ---
+    $gp->plot(
+        { title  => '{/Symbol D} (Delta)',
+          xlabel => 'Wavelength (nm)',
+          ylabel => '{/Symbol D} (deg)',
+          key    => 'top left box' },
+        with => 'points', legend => 'Data',
+            pt => 7, ps => 1.2, lc => 'rgb "#0072B2"',
+            $wavelength, $delta_data,
+        with => 'lines', legend => 'Fit',
+            lw => 2, dt => 1, lc => 'rgb "#D55E00"',
+            $wavelength, $delta_fit,
+    );
+
+    $gp->end_multi;
+
+    if ($output) {
+        $gp->close;
+        print "Plot saved to $output\n";
+    }
+
+    return $gp;
+}
+
 1;
 
 __END__
@@ -213,9 +290,36 @@ Sets the model function used for fitting.
 Performs Levenberg-Marquardt fitting.  C<$initial_params> is a PDL
 piddle of initial guesses.  Returns a PDL piddle of fitted parameters.
 
+=head2 plot
+
+    $vase->plot($fit_params);
+    $vase->plot($fit_params, output => 'fit.png');
+    $vase->plot($fit_params, output => 'fit.pdf', title => 'My Fit');
+
+Plots raw data points with model fit overlay in a two-panel layout
+(Psi on top, Delta on bottom).  Requires L<PDL::Graphics::Gnuplot>.
+
+Options:
+
+=over 4
+
+=item output
+
+File path for saving the plot.  Format is inferred from the extension
+(C<.png>, C<.pdf>, C<.svg>, C<.eps>).  If omitted, displays an
+interactive window.
+
+=item title
+
+Overall plot title (default: C<VASE Fit Results>).
+
+=back
+
 =head1 DEPENDENCIES
 
 L<PDL>, L<PDL::Fit::LM>, L<PDL::NiceSlice>
+
+L<PDL::Graphics::Gnuplot> is required only for the C<plot> method.
 
 =head1 AUTHOR
 

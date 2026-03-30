@@ -27,6 +27,7 @@ WriteMakefile(
             },
         },
     },
-    dist  => { COMPRESS => 'gzip -9f', SUFFIX => 'gz' },
-    clean => { FILES => 'Physics-Ellipsometry-VASE-*' },
+    dist      => { COMPRESS => 'gzip -9f', SUFFIX => 'gz' },
+    clean     => { FILES => 'Physics-Ellipsometry-VASE-*' },
+    PMLIBDIRS => ['lib'],
 );
