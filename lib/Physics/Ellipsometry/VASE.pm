@@ -5,7 +5,7 @@ use PDL;
 use PDL::Fit::LM;
 use PDL::NiceSlice;
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 # Constructor
 sub new {
@@ -247,6 +247,284 @@ sub plot {
 }
 
 1;
+
+__END__
+
+=head1 NAME
+
+Physics::Ellipsometry::VASE - Variable Angle Spectroscopic Ellipsometry data fitting
+
+=head1 VERSION
+
+Version 0.02
+
+=head1 SYNOPSIS
+
+    use PDL;
+    use PDL::NiceSlice;
+    use Physics::Ellipsometry::VASE;
+
+    # Create a VASE fitter for a single-layer model
+    my $vase = Physics::Ellipsometry::VASE->new(layers => 1);
+
+    # Load experimental data (auto-detects Woollam format)
+    $vase->load_data('measurement.dat');
+
+    # Define an optical model
+    sub cauchy_model {
+        my ($params, $x) = @_;
+        my $wavelength = $x->(:,0);   # nm
+        my $psi   = $params->(0) + $params->(1) / $wavelength**2;
+        my $delta = $params->(2) + $params->(3) * $wavelength;
+        return cat($psi, $delta)->flat;
+    }
+
+    $vase->set_model(\&cauchy_model);
+
+    my $fitted = $vase->fit(pdl [45, 1e4, 120, 0.01]);
+
+    # Plot results (requires PDL::Graphics::Gnuplot)
+    $vase->plot($fitted, output => 'fit.png');
+
+=head1 DESCRIPTION
+
+Physics::Ellipsometry::VASE provides a framework for fitting optical thin-film
+models to variable angle spectroscopic ellipsometry (VASE) data using the
+Levenberg-Marquardt algorithm.
+
+Ellipsometry measures the change in polarization state of light reflected from
+a sample surface.  The two measured quantities are B<Psi> (related to the
+amplitude ratio of p- and s-polarized reflectances) and B<Delta> (the phase
+difference).  By fitting a physical model to these measurements across
+wavelength and angle of incidence, one can extract optical constants (refractive
+index, extinction coefficient) and film thicknesses.
+
+The module handles:
+
+=over 4
+
+=item *
+
+Loading data in both simple whitespace-delimited format and the native
+J.A. Woollam VASE instrument format (auto-detected).
+
+=item *
+
+Automatic numerical Jacobian computation via relative-step finite differences.
+
+=item *
+
+Weighted fitting using measured uncertainties (sigma columns in Woollam files).
+
+=item *
+
+Multi-angle plotting of data and fit overlays via L<PDL::Graphics::Gnuplot>.
+
+=back
+
+=head1 CONSTRUCTOR
+
+=head2 new
+
+    my $vase = Physics::Ellipsometry::VASE->new(%args);
+
+Creates a new VASE analysis object.
+
+=over 4
+
+=item B<layers> (optional, default 1)
+
+Number of thin-film layers in the optical model.  Currently informational;
+the actual layer structure is encoded in the user-supplied model function.
+
+=item B<model> (optional)
+
+A code reference for the model function.  Can also be set later with
+L</set_model>.
+
+=back
+
+=head1 METHODS
+
+=head2 load_data
+
+    my $data = $vase->load_data($filename);
+
+Reads ellipsometry data from C<$filename>.  The format is auto-detected:
+
+=over 4
+
+=item B<Simple format>
+
+Whitespace-separated columns.  Lines starting with C<#> are comments; blank
+lines are skipped.
+
+    # Wavelength(nm)  Angle(deg)  Psi(deg)  Delta(deg)
+    400  70  45.0  120.0
+    410  70  44.5  121.0
+
+=item B<Woollam VASE format>
+
+Recognised when line 2 starts with C<VASEmethod[>.  The four-line header is
+parsed and stored as object attributes:
+
+    $vase->{sample_name}    # line 1
+    $vase->{vase_method}    # VASEmethod[...] content
+    $vase->{original_file}  # Original[...] content
+    $vase->{units}          # line 4 (e.g. "nm")
+
+Columns 5-6 (sigma_psi, sigma_delta) are extracted into C<< $vase->{sigma} >>
+and automatically used as weights during fitting.
+
+=back
+
+Returns a PDL piddle of shape C<(4, npts)> where the columns are wavelength,
+angle, psi, delta.
+
+=head2 set_model
+
+    $vase->set_model(\&my_model);
+
+Sets the model function used for fitting.  The function receives two
+arguments:
+
+    sub my_model {
+        my ($params, $x) = @_;
+        # $params - PDL piddle of fit parameters
+        # $x      - PDL piddle of shape (npts, 2):
+        #           column 0 = wavelength (nm)
+        #           column 1 = angle of incidence (degrees)
+
+        my $psi   = ...;  # compute psi   (npts values)
+        my $delta = ...;  # compute delta (npts values)
+
+        return cat($psi, $delta)->flat;   # concatenated 1-D piddle
+    }
+
+The return value B<must> be a flat piddle of length C<2*npts> with all psi
+values followed by all delta values.
+
+=head2 fit
+
+    my $fitted_params = $vase->fit($initial_params);
+
+Performs a Levenberg-Marquardt fit of the current model to the loaded data.
+
+C<$initial_params> is a PDL piddle of starting parameter values.  Returns
+a piddle of optimised parameters.
+
+After fitting, the following attributes are available:
+
+    $vase->{covar}  # covariance matrix (PDL)
+    $vase->{iters}  # number of LM iterations
+    $vase->{ym}     # model values at the fitted parameters
+
+The fit uses relative-step finite differences for the numerical Jacobian
+(step size C<|p_i| * 1e-7 + 1e-10>) and converges when the relative change
+in chi-squared falls below 1e-7, or after 300 iterations.
+
+=head2 plot
+
+    $vase->plot($fit_params, %options);
+
+Plots measured data with the model fit overlaid.  Requires
+L<PDL::Graphics::Gnuplot> (loaded on demand).
+
+Options:
+
+=over 4
+
+=item B<output>
+
+Filename for the plot image.  The format is inferred from the extension:
+C<.png>, C<.pdf>, C<.svg>, C<.eps>.  If omitted, an interactive window is
+opened.
+
+=item B<title>
+
+Title string for the plot (default: C<"VASE Fit Results">).
+
+=back
+
+When multiple angles of incidence are present, each angle is plotted as a
+separate colour-coded series.
+
+=head1 DATA FORMAT
+
+=head2 Simple Format
+
+    # Wavelength(nm)  Angle(deg)  Psi(deg)  Delta(deg)
+    400  70  45.0  120.0
+
+=head2 Woollam VASE Format
+
+    sample_name
+    VASEmethod[EllipsometerType=4, ...]
+    Original[filename.dat]
+    nm
+    400.000  70.000  45.000  120.000  0.010  0.020
+    ...
+
+Columns: wavelength, angle, psi, delta, sigma_psi, sigma_delta.
+
+=head1 EXAMPLES
+
+The C<examples/> directory in the distribution contains:
+
+=over 4
+
+=item L<fit_linear.pl|https://github.com/jtrujil43/Ellipsometry/blob/main/examples/fit_linear.pl>
+
+Minimal example fitting a linear dispersion model.
+
+=item L<vase_test_fit.pl|https://github.com/jtrujil43/Ellipsometry/blob/main/examples/vase_test_fit.pl>
+
+Cauchy thin-film model with complex Fresnel equations for Ta2O5 on Si.
+
+=item L<vase_tauc_lorentz_fit.pl|https://github.com/jtrujil43/Ellipsometry/blob/main/examples/vase_tauc_lorentz_fit.pl>
+
+Tauc-Lorentz oscillator model with numerical Kramers-Kronig integration.
+
+=back
+
+=head1 DEPENDENCIES
+
+=over 4
+
+=item L<PDL> (E<ge> 2.0)
+
+=item L<PDL::Fit::LM>
+
+=item L<PDL::NiceSlice>
+
+=item L<PDL::Graphics::Gnuplot> (optional, for plotting)
+
+=back
+
+=head1 SEE ALSO
+
+L<PDL>, L<PDL::Fit::LM>, L<PDL::Graphics::Gnuplot>
+
+H. Fujiwara, I<Spectroscopic Ellipsometry: Principles and Applications>,
+John Wiley & Sons, 2007.
+
+G.E. Jellison and F.A. Modine, "Parameterization of the optical functions
+of amorphous materials in the interband region", I<Appl. Phys. Lett.>
+B<69>, 371 (1996).
+
+=head1 AUTHOR
+
+Jovan Trujillo C<< <jtrujil1 at asu.edu> >>
+
+=head1 LICENSE AND COPYRIGHT
+
+Copyright 2026 Jovan Trujillo.
+
+This is free software; you can redistribute it and/or modify it under the
+same terms as the Perl 5 programming language system itself.  See
+L<https://dev.perl.org/licenses/> for details.
+
+=cut
 
 __END__
 
