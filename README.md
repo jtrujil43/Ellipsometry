@@ -74,6 +74,40 @@ Recognised automatically when line 2 begins with `VASEmethod[`.  Header
 metadata is stored as object attributes; sigma columns are extracted and used
 as fit weights.
 
+**Example Woollam file format:**
+```
+w1_11012006
+VASEmethod[EllipsometerType=4, Isotropic, FixedPol=45.00, ZoneAve=1, Revs=40, OffsetMode=2, Offset1=0, Offset2=0, Offset3=0, WVASE=3.616, HardVer=17.034, Wed Nov 01 15:19:00 2006]
+Original[w1_11012006.dat]
+nm
+245.732520	64.999634	14.355849	149.18707	0.04032	0.132363
+247.331348	64.999634	14.181567	150.33243	0.0433035	0.141132
+```
+
+**Loading Woollam files:**
+```perl
+use Physics::Ellipsometry::VASE;
+use PDL;
+
+my $vase = Physics::Ellipsometry::VASE->new(layers => 1);
+my $data = $vase->load_data('woollam_data.dat');
+
+# Access header metadata
+print "Sample: ", $vase->{sample_name}, "\n";        # w1_11012006
+print "Method: ", $vase->{vase_method}, "\n";        # VASEmethod[...] content
+print "Original: ", $vase->{original_file}, "\n";    # Original[...] content
+print "Units: ", $vase->{units}, "\n";               # nm
+
+# Access measurement uncertainties (automatically used as fit weights)
+if (defined $vase->{sigma}) {
+    my $sigma_psi   = $vase->{sigma}->(0,:);  # psi uncertainties
+    my $sigma_delta = $vase->{sigma}->(1,:);  # delta uncertainties
+    print "Has sigma columns for weighted fitting\n";
+}
+```
+
+The weighted fitting automatically uses the sigma columns when present, giving less weight to measurements with larger uncertainties during the Levenberg-Marquardt optimization.
+
 ## Examples
 
 The `examples/` directory contains working scripts:
