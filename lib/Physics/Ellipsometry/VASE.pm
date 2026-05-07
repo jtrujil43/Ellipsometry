@@ -6,7 +6,7 @@ use PDL::Fit::LM;
 use PDL::NiceSlice;
 use PDL::Constants qw(PI);
 
-our $VERSION = '1.01';
+our $VERSION = '1.02';
 
 # Sub-modules (loaded on demand)
 # use Physics::Ellipsometry::VASE::TMM;
