@@ -415,16 +415,6 @@ L<Physics::Ellipsometry::VASE::Optimizer>
 
 =cut
 
-Number of thin-film layers in the optical model.  Currently informational;
-the actual layer structure is encoded in the user-supplied model function.
-
-=item B<model> (optional)
-
-A code reference for the model function.  Can also be set later with
-L</set_model>.
-
-=back
-
 =head1 METHODS
 
 =head2 load_data
