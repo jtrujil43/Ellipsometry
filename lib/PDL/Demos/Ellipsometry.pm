@@ -5,7 +5,7 @@ use warnings;
 use PDL;
 use Physics::Ellipsometry::VASE;
 
-sub info {('ellipsometry', 'Spectroscopic ellipsometry analysis with Physics::Ellipsometry::VASE (Req.: PDL::Graphics::Simple)')}
+sub info {('ellipsometry', 'Spectroscopic ellipsometry (Req: P:G:Simple)')}
 
 # Locate data files shipped alongside this module
 sub _data_dir {
