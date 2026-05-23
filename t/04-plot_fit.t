@@ -3,6 +3,7 @@ use warnings;
 
 use Test::More;
 
+use File::Temp qw(tempfile);
 use FindBin;
 use PDL;
 use PDL::NiceSlice;
@@ -41,8 +42,8 @@ subtest 'find MSE' => sub {
     ok $vase->{iters} > 0, 'Iterations positive';
 };
 
-my $test_plot_png = 'test_plot_fit.png';
-my $test_plot_pdf = 'test_plot_fit.pdf';
+my ($fh1, $test_plot_png) = tempfile(SUFFIX => '.png', UNLINK => 1);
+my ($fh2, $test_plot_pdf) = tempfile(SUFFIX => '.pdf', UNLINK => 1);
 
 subtest 'Save plot to PNG' => sub {
     ok $vase->plot($fit_params, output => $test_plot_png),
@@ -50,6 +51,7 @@ subtest 'Save plot to PNG' => sub {
     ok -e $test_plot_png, "test image $test_plot_png exists";
     ok -s $test_plot_png, "test image $test_plot_png not empty";
 };
+close $fh1;
 
 subtest 'Save plot to PDF' => sub {
     ok $vase->plot($fit_params,
@@ -59,8 +61,6 @@ subtest 'Save plot to PDF' => sub {
     ok -e $test_plot_pdf, "test image $test_plot_pdf exists";
     ok -s $test_plot_pdf, "test image $test_plot_pdf not empty";
 };
+close $fh2;
 
 done_testing();
-
-# cleanup tmp files
-END { unlink $test_plot_png, $test_plot_pdf; }
