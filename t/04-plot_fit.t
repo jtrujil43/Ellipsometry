@@ -33,7 +33,12 @@ ok $vase->set_model($model), 'set_model works';
 my $initial_params = pdl [65, 0.05, 80, 0.1];
 my $fit_params = $vase->fit($initial_params);
 
-is_deeply [list $fit_params], [65.0, 0.05, 80.0, 0.10], 'fit parameters correct';
+my @expected_fit_params = (65.0, 0.05, 80.0, 0.10);
+my $fit_tolerance = 1e-6;
+for my $i (0 .. $#expected_fit_params) {
+    ok abs($fit_params->at($i) - $expected_fit_params[$i]) < $fit_tolerance,
+        "fit parameter $i within tolerance";
+}
 
 subtest 'find MSE' => sub {
     my $mse = $vase->mse($fit_params, nparams => 4);
