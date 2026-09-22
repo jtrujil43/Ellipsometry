@@ -5,6 +5,7 @@ use PDL;
 use PDL::NiceSlice;
 use PDL::Constants qw(PI);
 use Exporter 'import';
+use Scalar::Util qw(looks_like_number);
 
 our @EXPORT_OK = qw(temperature_bandgap temperature_drude temperature_thermo_optic);
 
@@ -139,6 +140,15 @@ B<Parameters:>
 
 =item C<n_exp> - carrier density temperature exponent (0 for metals)
 
+=item C<activation_energy> - optional carrier activation energy [eV].  When
+non-zero, the carrier density is normalized to C<T_ref> and follows
+
+    n(T) / n(T_ref) = (T/T_ref)^n_exp
+        * exp[-Ea/(2*kB) * (1/T - 1/T_ref)]
+
+This is useful for doped semiconductors.  The default is zero, preserving the
+metal-like power-law model.
+
 =back
 
     # Gold optical constants at 300K vs 600K
@@ -194,16 +204,26 @@ I<Physica> B<34>, 149 (1967).
 # Returns: Eg(T) in eV
 sub temperature_bandgap {
     my ($Eg0, $T, %params) = @_;
+    _validate_number($Eg0, 'Eg0');
+    _validate_temperature($T, allow_zero => 1);
     my $model = $params{model} // 'varshni';
 
     if ($model eq 'varshni') {
         my $alpha = $params{alpha} // 5.5e-4;  # eV/K (Si: 4.73e-4)
         my $beta  = $params{beta}  // 230;     # K (Si: 636)
+        _validate_number($alpha, 'alpha');
+        _validate_number($beta, 'beta');
+        return $Eg0 if $T == 0;
+        die "T + beta must not be zero" if $T + $beta == 0;
         return $Eg0 - $alpha * $T**2 / ($T + $beta);
     }
     elsif ($model eq 'bose_einstein') {
         my $aB    = $params{aB}    // 0.05;    # coupling strength [eV]
         my $Theta = $params{Theta} // 300;     # characteristic temperature [K]
+        _validate_number($aB, 'aB');
+        _validate_number($Theta, 'Theta');
+        die "Theta must be greater than zero" if $Theta <= 0;
+        return $Eg0 if $T == 0;
         return $Eg0 - 2 * $aB / (exp($Theta / $T) - 1);
     }
     else {
@@ -221,6 +241,15 @@ sub temperature_bandgap {
 # Returns (n, k) piddles for the given wavelength range
 sub temperature_drude {
     my ($lambda_nm, $T, %params) = @_;
+    _validate_temperature($T);
+    my $lambda = pdl($lambda_nm);
+    die "lambda_nm must contain at least one wavelength"
+        unless $lambda->nelem;
+    die "wavelength values must be finite"
+        unless all($lambda->isfinite);
+    die "wavelength values must be greater than zero"
+        if any($lambda <= 0);
+
     my $eps_inf  = $params{eps_inf}  // 1.0;
     my $omega_p0 = $params{omega_p0} // 9.0;    # plasma freq at ref T [eV]
     my $gamma_0  = $params{gamma_0}  // 0.02;   # residual scattering [eV]
@@ -228,19 +257,41 @@ sub temperature_drude {
     my $gamma_ee = $params{gamma_ee} // 1e-7;   # e-electron coeff [eV/K^2]
     my $T_ref    = $params{T_ref}    // 300;     # reference temperature [K]
     my $n_exp    = $params{n_exp}    // 0;       # carrier density T-exponent
+    my $Ea       = $params{activation_energy} // 0; # carrier activation [eV]
+
+    _validate_temperature($T_ref);
+    for my $parameter (
+        [ $eps_inf,  'eps_inf' ],
+        [ $omega_p0, 'omega_p0' ],
+        [ $gamma_0,  'gamma_0' ],
+        [ $gamma_ep, 'gamma_ep' ],
+        [ $gamma_ee, 'gamma_ee' ],
+        [ $n_exp,    'n_exp' ],
+        [ $Ea,       'activation_energy' ],
+    ) {
+        _validate_number(@$parameter);
+    }
+    die "activation_energy must be non-negative" if $Ea < 0;
 
     # Temperature-dependent scattering
     my $gamma_T = $gamma_0 + $gamma_ep * $T + $gamma_ee * $T**2;
+    _validate_number($gamma_T, 'temperature-dependent scattering rate');
 
     # Temperature-dependent plasma frequency
     # omega_p^2 ∝ n_carrier/m* ; n_carrier may depend on T
-    my $omega_p_T = $omega_p0;
-    if ($n_exp != 0) {
-        $omega_p_T = $omega_p0 * ($T / $T_ref)**($n_exp / 2.0);
+    my $carrier_ratio = ($T / $T_ref)**$n_exp;
+    if ($Ea != 0) {
+        my $k_boltzmann = 8.617333262e-5; # eV/K
+        $carrier_ratio *= exp(
+            -$Ea / (2 * $k_boltzmann) * (1 / $T - 1 / $T_ref)
+        );
     }
+    _validate_number($carrier_ratio, 'carrier density ratio');
+    die "carrier density ratio must be non-negative" if $carrier_ratio < 0;
+    my $omega_p_T = $omega_p0 * sqrt($carrier_ratio);
 
     # Compute dielectric function
-    my $E = 1239.842 / $lambda_nm;
+    my $E = 1239.842 / $lambda;
     my $eps = $eps_inf - $omega_p_T**2 / ($E**2 + i() * $E * $gamma_T);
     my $N = sqrt($eps);
     return ($N->re, $N->im->abs);
@@ -258,14 +309,39 @@ sub temperature_drude {
 # $d2ndt2: second-order coefficient [1/K^2] (optional)
 sub temperature_thermo_optic {
     my ($n_ref, $T, %params) = @_;
+    _validate_temperature($T, allow_zero => 1);
     my $T_ref  = $params{T_ref}  // 300;
     my $dndt   = $params{dndt}   // 1e-5;    # typical for glass
     my $d2ndt2 = $params{d2ndt2} // 0;
+
+    _validate_temperature($T_ref, allow_zero => 1);
+    _validate_number($dndt, 'dndt');
+    _validate_number($d2ndt2, 'd2ndt2');
 
     my $dT = $T - $T_ref;
     my $n_T = $n_ref + $dndt * $dT + 0.5 * $d2ndt2 * $dT**2;
 
     return $n_T;
+}
+
+sub _validate_temperature {
+    my ($temperature, %opts) = @_;
+    _validate_number($temperature, 'temperature');
+    my $minimum_ok = $opts{allow_zero} ? $temperature >= 0 : $temperature > 0;
+    die "temperature must be " . ($opts{allow_zero} ? 'non-negative' : 'greater than zero')
+        unless $minimum_ok;
+    return $temperature;
+}
+
+sub _validate_number {
+    my ($value, $name) = @_;
+    my $display = defined($value) ? "$value" : '';
+    die "$name must be a finite number"
+        unless defined($value)
+            && looks_like_number($value)
+            && $value == $value
+            && $display !~ /(?:inf|nan)/i;
+    return $value;
 }
 
 1;
